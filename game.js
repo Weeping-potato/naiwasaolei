@@ -37,6 +37,7 @@ let board = null;
 let started = false, game_over = false, win = false;
 let flags = 0, elapsed = 0, startTicks = 0;
 let flagMode = false;
+let stateAt = 0;             // 状态切换时刻:切换后短暂忽略点击,防误触/事件重复
 let logW = MENU_W, logH = MENU_H;   // 当前逻辑画布尺寸
 let hover = { x: -1, y: -1 };
 
@@ -198,9 +199,10 @@ function startGame(cols, rows, mines) {
     flags = 0; elapsed = 0; startTicks = 0;
     flagMode = false;
     state = "playing";
+    stateAt = performance.now();
 }
 
-function backToMenu() { state = "menu"; }
+function backToMenu() { state = "menu"; stateAt = performance.now(); }
 
 function hitMine(r, c) {
     game_over = true;
@@ -229,10 +231,15 @@ function toLogical(px, py) {
 
 /* ==================== 输入 ==================== */
 canvas.addEventListener("pointerdown", (e) => {
+    // 状态切换后 300ms 内忽略点击:防止一次点击同时触发"开始游戏"和"翻开格子"
+    if (performance.now() - stateAt < 300) return;
     const [mx, my] = toLogical(e.clientX, e.clientY);
     if (state === "menu") {
         for (const b of menuBtns()) {
-            if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) startGame(b.c, b.r, b.m);
+            if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+                startGame(b.c, b.r, b.m);
+                return;
+            }
         }
         return;
     }
@@ -240,11 +247,11 @@ canvas.addEventListener("pointerdown", (e) => {
     if (my < TOP_BAR) {
         const flagBtn = flagButtonRect();
         const faceBtn = faceButtonRect();
-        const timerRect = { x: COLS * CELL - 70, y: 0, w: 70, h: TOP_BAR };
+        const backBtn = backButtonRect();
         const inR = (p) => mx >= p.x && mx <= p.x + p.w && my >= p.y && my <= p.y + p.h;
         if (inR(flagBtn)) flagMode = !flagMode;
         else if (inR(faceBtn)) startGame(COLS, ROWS, MINES);
-        else if (inR(timerRect)) backToMenu();
+        else if (inR(backBtn)) backToMenu();
         return;
     }
     if (game_over || win) return;
@@ -289,6 +296,7 @@ function menuBtns() {
 }
 function flagButtonRect() { return { x: COLS * CELL / 2 - 25 - 54, y: 6, w: 44, h: TOP_BAR - 12 }; }
 function faceButtonRect() { return { x: COLS * CELL / 2 - 25, y: 8, w: 50, h: TOP_BAR - 16 }; }
+function backButtonRect() { return { x: COLS * CELL / 2 + 25 + 10, y: 6, w: 44, h: TOP_BAR - 12 }; }
 
 /* ==================== 绘制 ==================== */
 function drawMenu() {
@@ -388,6 +396,24 @@ function drawGame() {
         ctx.strokeStyle = COLOR_CELL_LIGHT;
         ctx.strokeRect(fbtn.x + 1, fbtn.y + 1, fbtn.w - 2, fbtn.h - 2);
     }
+    // 回退按钮(脸的右侧,与旗子按钮对称):点击回到难度选择
+    const bb = backButtonRect();
+    ctx.fillStyle = COLOR_CELL;
+    roundRect(bb.x, bb.y, bb.w, bb.h, 8); ctx.fill();
+    ctx.strokeStyle = COLOR_CELL_LIGHT; ctx.lineWidth = 2;
+    roundRect(bb.x, bb.y, bb.w, bb.h, 8); ctx.stroke();
+    if (images.back) {
+        const bimg = images.back;
+        const bs = Math.min((bb.w - 6) / bimg.width, (bb.h - 6) / bimg.height);
+        const bw = bimg.width * bs, bh = bimg.height * bs;
+        ctx.drawImage(bimg, bb.x + (bb.w - bw) / 2, bb.y + (bb.h - bh) / 2, bw, bh);
+    } else {
+        ctx.font = "bold 20px sans-serif";
+        ctx.fillStyle = "#505050";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("←", bb.x + bb.w / 2, bb.y + bb.h / 2);
+        ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    }
     // 计时器
     drawLED(6, drawLEDNumber(elapsed), "right");
 
@@ -486,6 +512,7 @@ function frame(now) {
         loadImage("face_dead", "assets/face_dead.jpg"),
         loadImage("flag", "assets/flag.png"),
         loadImage("bomb", "assets/bomb.jpg"),
+        loadImage("back", "assets/back.png"),
     ]);
     if (images.bomb) images.bomb = keyoutWhite(images.bomb);
     if (images.flag) images.flag = keyoutWhite(images.flag);
